@@ -10,7 +10,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
 from PIL import Image
 
-IMAGE_DIR = r"C:\Users\DELL\Desktop\Deep_Learning_Project\similar_images.zip"
+IMAGE_DIR = r"https://github.com/Shruzana/similar_images/blob/main/similar_images.zip"
 FEAT_CACHE = "features.npy"
 NAME_CACHE = "filenames.npy"
 TOP_N = 5
@@ -103,6 +103,7 @@ for idx, (img_path, score) in enumerate(results):
 
 if uploaded:
     os.remove(query_path)
+
 
 
 
