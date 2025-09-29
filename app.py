@@ -1,6 +1,9 @@
 import streamlit as st
 import numpy as np
 import os
+import zipfile
+import requests
+from io import BytesIO
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
@@ -10,15 +13,26 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
 from PIL import Image
 
-IMAGE_DIR = r"https://github.com/Shruzana/similar_images/blob/main/similar_images.zip"
+# 🔑 Correct raw GitHub URL
+ZIP_URL = "https://github.com/Shruzana/similar_images/raw/main/similar_images.zip"
+IMAGE_DIR = "images"
 FEAT_CACHE = "features.npy"
 NAME_CACHE = "filenames.npy"
 TOP_N = 5
+
+# ✅ Download and unzip dataset if not already
+if not os.path.exists(IMAGE_DIR):
+    st.write("📥 Downloading and extracting image dataset...")
+    response = requests.get(ZIP_URL)
+    with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
+        zip_ref.extractall(IMAGE_DIR)
+
 
 @st.cache_resource
 def get_feature_extractor():
     base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
     return Model(inputs=base_model.input, outputs=GlobalAveragePooling2D()(base_model.output))
+
 
 def extract_features(file_path, model):
     img = load_img(file_path, target_size=(224, 224))
@@ -28,8 +42,9 @@ def extract_features(file_path, model):
     feature = model.predict(arr, verbose=0)
     return feature.flatten()
 
+
 def compute_and_cache_features(image_dir, model):
-    valid_ext = ('.jpg','.jpeg','.png','.bmp','.tiff')
+    valid_ext = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
     filenames = sorted([
         os.path.join(image_dir, f) for f in os.listdir(image_dir)
         if f.lower().endswith(valid_ext)
@@ -42,6 +57,7 @@ def compute_and_cache_features(image_dir, model):
     np.save(NAME_CACHE, filenames)
     return filenames, features
 
+
 @st.cache_data
 def load_image_features(image_dir, model):
     if os.path.exists(FEAT_CACHE) and os.path.exists(NAME_CACHE):
@@ -51,6 +67,7 @@ def load_image_features(image_dir, model):
     else:
         return compute_and_cache_features(image_dir, model)
 
+
 def find_similar_images(query_img_path, features_db, filenames_db, model, top_n=TOP_N):
     qf = extract_features(query_img_path, model)
     qf = normalize([qf])[0]
@@ -58,16 +75,19 @@ def find_similar_images(query_img_path, features_db, filenames_db, model, top_n=
     top_idx = np.argsort(-sims)[:top_n]
     return [(filenames_db[i], sims[i]) for i in top_idx]
 
-# tqdm for progress feedback on cache build
-def stqdm(iterable, desc):  # Simple Streamlit-friendly tqdm
+
+# tqdm for progress feedback
+def stqdm(iterable, desc):
     progress = st.progress(0)
     items = list(iterable)
     n = len(items)
     for i, item in enumerate(items):
-        progress.progress((i+1)/n, text=f"{desc}: {i+1}/{n}")
+        progress.progress((i + 1) / n, text=f"{desc}: {i + 1}/{n}")
         yield item
     progress.empty()
 
+
+# 🔹 Streamlit UI
 st.title("🔍 Find Similar Images")
 st.markdown("Upload or select an image. The app will show the most visually similar images from the database.")
 
@@ -98,12 +118,7 @@ st.subheader("Top Similar Images")
 cols = st.columns(TOP_N)
 for idx, (img_path, score) in enumerate(results):
     with cols[idx]:
-        st.image(Image.open(img_path), caption=f"Score: {score*100:.1f}%", use_container_width=True)
-
+        st.image(Image.open(img_path), caption=f"Score: {score * 100:.1f}%", use_container_width=True)
 
 if uploaded:
     os.remove(query_path)
-
-
-
-
