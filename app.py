@@ -13,26 +13,28 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
 from PIL import Image
 
-# 🔑 Correct raw GitHub URL
+# -----------------------------
+# Download and extract dataset
+# -----------------------------
 ZIP_URL = "https://github.com/Shruzana/similar_images/raw/main/similar_images.zip"
 IMAGE_DIR = "images"
 FEAT_CACHE = "features.npy"
 NAME_CACHE = "filenames.npy"
 TOP_N = 5
 
-# ✅ Download and unzip dataset if not already
 if not os.path.exists(IMAGE_DIR):
     st.write("📥 Downloading and extracting image dataset...")
     response = requests.get(ZIP_URL)
     with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
         zip_ref.extractall(IMAGE_DIR)
 
-
+# -----------------------------
+# Feature extractor
+# -----------------------------
 @st.cache_resource
 def get_feature_extractor():
     base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
     return Model(inputs=base_model.input, outputs=GlobalAveragePooling2D()(base_model.output))
-
 
 def extract_features(file_path, model):
     img = load_img(file_path, target_size=(224, 224))
@@ -42,13 +44,26 @@ def extract_features(file_path, model):
     feature = model.predict(arr, verbose=0)
     return feature.flatten()
 
-
-def compute_and_cache_features(image_dir, model):
+# -----------------------------
+# Recursively collect all image files
+# -----------------------------
+def get_all_image_files(root_dir):
     valid_ext = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
-    filenames = sorted([
-        os.path.join(image_dir, f) for f in os.listdir(image_dir)
-        if f.lower().endswith(valid_ext)
-    ])
+    files = []
+    for subdir, _, filenames in os.walk(root_dir):
+        for f in filenames:
+            if f.lower().endswith(valid_ext):
+                files.append(os.path.join(subdir, f))
+    return sorted(files)
+
+# -----------------------------
+# Compute or load features
+# -----------------------------
+def compute_and_cache_features(image_dir, model):
+    filenames = get_all_image_files(image_dir)
+    if len(filenames) == 0:
+        st.error(f"No image files found in {image_dir} or its subfolders.")
+        return [], []
     features = []
     for fn in stqdm(filenames, "Extracting folder features"):
         features.append(extract_features(fn, model))
@@ -56,7 +71,6 @@ def compute_and_cache_features(image_dir, model):
     np.save(FEAT_CACHE, features)
     np.save(NAME_CACHE, filenames)
     return filenames, features
-
 
 @st.cache_data
 def load_image_features(image_dir, model):
@@ -67,7 +81,9 @@ def load_image_features(image_dir, model):
     else:
         return compute_and_cache_features(image_dir, model)
 
-
+# -----------------------------
+# Similar image search
+# -----------------------------
 def find_similar_images(query_img_path, features_db, filenames_db, model, top_n=TOP_N):
     qf = extract_features(query_img_path, model)
     qf = normalize([qf])[0]
@@ -75,8 +91,9 @@ def find_similar_images(query_img_path, features_db, filenames_db, model, top_n=
     top_idx = np.argsort(-sims)[:top_n]
     return [(filenames_db[i], sims[i]) for i in top_idx]
 
-
-# tqdm for progress feedback
+# -----------------------------
+# tqdm for progress bar
+# -----------------------------
 def stqdm(iterable, desc):
     progress = st.progress(0)
     items = list(iterable)
@@ -86,13 +103,17 @@ def stqdm(iterable, desc):
         yield item
     progress.empty()
 
-
-# 🔹 Streamlit UI
+# -----------------------------
+# Streamlit UI
+# -----------------------------
 st.title("🔍 Find Similar Images")
 st.markdown("Upload or select an image. The app will show the most visually similar images from the database.")
 
 model = get_feature_extractor()
 image_files, image_feats = load_image_features(IMAGE_DIR, model)
+
+if len(image_files) == 0:
+    st.stop()
 
 img_display_names = [os.path.basename(fp) for fp in image_files]
 option = st.selectbox("Select a query image from the database:", img_display_names)
